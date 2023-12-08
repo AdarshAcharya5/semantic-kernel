@@ -1,263 +1,100 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
 using System;
-using System.ComponentModel;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.SemanticKernel.Diagnostics;
-using Microsoft.SemanticKernel.Http;
-using Microsoft.SemanticKernel.Memory;
-using Microsoft.SemanticKernel.Services;
-using Microsoft.SemanticKernel.TemplateEngine;
+using System.Collections.Generic;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Microsoft.SemanticKernel;
 
-/// <summary>
-/// A builder for Semantic Kernel.
-/// </summary>
-public sealed class KernelBuilder
+/// <summary>Provides a builder for constructing instances of <see cref="Kernel"/>.</summary>
+public sealed class KernelBuilder : IKernelBuilder
 {
-    private Func<ISemanticTextMemory> _memoryFactory = () => NullMemory.Instance;
-    private ILoggerFactory _loggerFactory = NullLoggerFactory.Instance;
-    private Func<IMemoryStore>? _memoryStorageFactory = null;
-    private IDelegatingHandlerFactory _httpHandlerFactory = NullHttpHandlerFactory.Instance;
-    [Obsolete("Use IPromptTemplateFactory instead. This will be removed in a future release.")]
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    private IPromptTemplateEngine? _promptTemplateEngine;
-    private readonly AIServiceCollection _aiServices = new();
-    private IAIServiceSelector? _serviceSelector;
+    /// <summary>Whether to allow <see cref="Build"/>.</summary>
+    /// <remarks>
+    /// When the <see cref="KernelBuilder"/> is directly created by the user, this is true.
+    /// When it's created by <see cref="KernelExtensions.AddKernel"/> over an existing
+    /// <see cref="IServiceCollection"/>, we currently don't want to allow <see cref="Build"/>
+    /// to call BuildServiceProvider, as that can lead to confusion around how other services
+    /// registered in that service collection behave.
+    /// </remarks>
+    private readonly bool _supportsBuild = true;
+    /// <summary>The collection of services to be available through the <see cref="Kernel"/>.</summary>
+    private IServiceCollection? _services;
+    /// <summary>A facade on top of <see cref="_services"/> for adding plugins to the services collection.</summary>
+    private KernelBuilderPlugins? _plugins;
 
-    /// <summary>
-    /// Create a new kernel instance
-    /// </summary>
-    /// <returns>New kernel instance</returns>
-    public static IKernel Create()
+    /// <summary>Initializes a new instance of the <see cref="KernelBuilder"/>.</summary>
+    public KernelBuilder() { }
+
+    /// <summary>Initializes a new instance of the <see cref="KernelBuilder"/>.</summary>
+    /// <param name="services">
+    /// The <see cref="IServiceCollection"/> to wrap and use for building the <see cref="Kernel"/>.
+    /// </param>
+    /// <remarks>
+    /// As the service collection is externally provided, <see cref="Build"/> is disabled
+    /// to avoid unexpected confusion with multiple builds of the same service collection.
+    /// </remarks>
+    internal KernelBuilder(IServiceCollection services)
     {
-        var builder = new KernelBuilder();
-        return builder.Build();
+        Verify.NotNull(services);
+
+        this._services = services;
+        this._supportsBuild = false;
     }
 
-    /// <summary>
-    /// Build a new kernel instance using the settings passed so far.
-    /// </summary>
-    /// <returns>Kernel instance</returns>
-    public IKernel Build()
-    {
-#pragma warning disable CS8604 // Possible null reference argument.
-#pragma warning disable CS0618 // Type or member is obsolete
-        var instance = new Kernel(
-            new FunctionCollection(),
-            this._aiServices.Build(),
-            this._promptTemplateEngine,
-            this._memoryFactory.Invoke(),
-            this._httpHandlerFactory,
-            this._loggerFactory,
-            this._serviceSelector
-        );
-#pragma warning restore CS0618 // Type or member is obsolete
-#pragma warning restore CS8604 // Possible null reference argument.
+    /// <summary>Gets the collection of services to be built into the <see cref="Kernel"/>.</summary>
+    public IServiceCollection Services => this._services ??= new ServiceCollection();
 
-        // TODO: decouple this from 'UseMemory' kernel extension
-        if (this._memoryStorageFactory != null)
+    /// <summary>Gets a builder for plugins to be built as services into the <see cref="Kernel"/>.</summary>
+    public IKernelBuilderPlugins Plugins => this._plugins ??= new(this.Services);
+
+    /// <summary>Constructs a new instance of <see cref="Kernel"/> using all of the settings configured on the builder.</summary>
+    /// <returns>The new <see cref="Kernel"/> instance.</returns>
+    /// <remarks>
+    /// Every call to <see cref="Build"/> produces a new <see cref="Kernel"/> instance. The resulting <see cref="Kernel"/>
+    /// instances will not share the same plugins collection or services provider (unless there are no services).
+    /// </remarks>
+    public Kernel Build()
+    {
+        if (!this._supportsBuild)
         {
-#pragma warning disable CS0618 // This will be removed in a future release.
-            instance.UseMemory(this._memoryStorageFactory.Invoke());
-#pragma warning restore CS0618 // This will be removed in a future release.
+            throw new InvalidOperationException("Build is not supported on this instance. Use BuildServiceProvider on the original IServiceCollection.");
         }
 
-        return instance;
+        IServiceProvider serviceProvider = EmptyServiceProvider.Instance;
+        if (this._services is { Count: > 0 } services)
+        {
+            // This is a workaround for Microsoft.Extensions.DependencyInjection's GetKeyedServices not currently supporting
+            // enumerating all services for a given type regardless of key.
+            // https://github.com/dotnet/runtime/issues/91466
+            // We need this support to, for example, allow IServiceSelector to pick from multiple named instances of an AI
+            // service based on their characteristics. Until that is addressed, we work around it by injecting as a service all
+            // of the keys used for a given type, such that Kernel can then query for this dictionary and enumerate it. This means
+            // that such functionality will work when KernelBuilder is used to build the kernel but not when the IServiceProvider
+            // is created via other means, such as if Kernel is directly created by DI. However, it allows us to create the APIs
+            // the way we want them for the longer term and then subsequently fix the implementation when M.E.DI is fixed.
+            Dictionary<Type, HashSet<object?>> typeToKeyMappings = new();
+            foreach (ServiceDescriptor serviceDescriptor in services)
+            {
+                if (!typeToKeyMappings.TryGetValue(serviceDescriptor.ServiceType, out HashSet<object?>? keys))
+                {
+                    typeToKeyMappings[serviceDescriptor.ServiceType] = keys = new();
+                }
+
+                keys.Add(serviceDescriptor.ServiceKey);
+            }
+            services.AddKeyedSingleton(Kernel.KernelServiceTypeToKeyMappings, typeToKeyMappings);
+
+            serviceProvider = services.BuildServiceProvider();
+        }
+
+        return new Kernel(serviceProvider);
     }
 
-    /// <summary>
-    /// Add a logger to the kernel to be built.
-    /// </summary>
-    /// <param name="loggerFactory">The <see cref="ILoggerFactory"/> to use for logging. If null, no logging will be performed.</param>
-    /// <returns>Updated kernel builder including the logger.</returns>
-    public KernelBuilder WithLoggerFactory(ILoggerFactory loggerFactory)
+    private sealed class KernelBuilderPlugins : IKernelBuilderPlugins
     {
-        Verify.NotNull(loggerFactory);
-        this._loggerFactory = loggerFactory;
-        return this;
-    }
+        public KernelBuilderPlugins(IServiceCollection services) => this.Services = services;
 
-    /// <summary>
-    /// Add a semantic text memory entity to the kernel to be built.
-    /// </summary>
-    /// <param name="memory">Semantic text memory entity to add.</param>
-    /// <returns>Updated kernel builder including the semantic text memory entity.</returns>
-    [Obsolete("Memory functionality will be placed in separate Microsoft.SemanticKernel.Plugins.Memory package. This will be removed in a future release. See sample dotnet/samples/KernelSyntaxExamples/Example14_SemanticMemory.cs in the semantic-kernel repository.")]
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    public KernelBuilder WithMemory(ISemanticTextMemory memory)
-    {
-        Verify.NotNull(memory);
-        this._memoryFactory = () => memory;
-        return this;
-    }
-
-    /// <summary>
-    /// Add a semantic text memory store factory.
-    /// </summary>
-    /// <param name="factory">The store factory.</param>
-    /// <returns>Updated kernel builder including the semantic text memory entity.</returns>
-    [Obsolete("Memory functionality will be placed in separate Microsoft.SemanticKernel.Plugins.Memory package. This will be removed in a future release. See sample dotnet/samples/KernelSyntaxExamples/Example14_SemanticMemory.cs in the semantic-kernel repository.")]
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    public KernelBuilder WithMemory<TStore>(Func<ILoggerFactory, TStore> factory) where TStore : ISemanticTextMemory
-    {
-        Verify.NotNull(factory);
-        this._memoryFactory = () => factory(this._loggerFactory);
-        return this;
-    }
-
-    /// <summary>
-    /// Add memory storage to the kernel to be built.
-    /// </summary>
-    /// <param name="storage">Storage to add.</param>
-    /// <returns>Updated kernel builder including the memory storage.</returns>
-    [Obsolete("Memory functionality will be placed in separate Microsoft.SemanticKernel.Plugins.Memory package. This will be removed in a future release. See sample dotnet/samples/KernelSyntaxExamples/Example14_SemanticMemory.cs in the semantic-kernel repository.")]
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    public KernelBuilder WithMemoryStorage(IMemoryStore storage)
-    {
-        Verify.NotNull(storage);
-        this._memoryStorageFactory = () => storage;
-        return this;
-    }
-
-    /// <summary>
-    /// Add memory storage factory to the kernel.
-    /// </summary>
-    /// <param name="factory">The storage factory.</param>
-    /// <returns>Updated kernel builder including the memory storage.</returns>
-    [Obsolete("Memory functionality will be placed in separate Microsoft.SemanticKernel.Plugins.Memory package. This will be removed in a future release. See sample dotnet/samples/KernelSyntaxExamples/Example14_SemanticMemory.cs in the semantic-kernel repository.")]
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    public KernelBuilder WithMemoryStorage<TStore>(Func<ILoggerFactory, TStore> factory) where TStore : IMemoryStore
-    {
-        Verify.NotNull(factory);
-        this._memoryStorageFactory = () => factory(this._loggerFactory);
-        return this;
-    }
-
-    /// <summary>
-    /// Add memory storage factory to the kernel.
-    /// </summary>
-    /// <param name="factory">The storage factory.</param>
-    /// <returns>Updated kernel builder including the memory storage.</returns>
-    [Obsolete("Memory functionality will be placed in separate Microsoft.SemanticKernel.Plugins.Memory package. This will be removed in a future release. See sample dotnet/samples/KernelSyntaxExamples/Example14_SemanticMemory.cs in the semantic-kernel repository.")]
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    public KernelBuilder WithMemoryStorage<TStore>(Func<ILoggerFactory, IDelegatingHandlerFactory, TStore> factory) where TStore : IMemoryStore
-    {
-        Verify.NotNull(factory);
-        this._memoryStorageFactory = () => factory(this._loggerFactory, this._httpHandlerFactory);
-        return this;
-    }
-
-    /// <summary>
-    /// Add prompt template engine to the kernel to be built.
-    /// </summary>
-    /// <param name="promptTemplateEngine">Prompt template engine to add.</param>
-    /// <returns>Updated kernel builder including the prompt template engine.</returns>
-    [Obsolete("Use IPromptTemplateFactory instead. This will be removed in a future release.")]
-    [EditorBrowsable(EditorBrowsableState.Never)]
-    public KernelBuilder WithPromptTemplateEngine(IPromptTemplateEngine promptTemplateEngine)
-    {
-        Verify.NotNull(promptTemplateEngine);
-        this._promptTemplateEngine = promptTemplateEngine;
-        return this;
-    }
-
-    /// <summary>
-    /// Add a http handler factory to the kernel to be built.
-    /// </summary>
-    /// <param name="httpHandlerFactory">Http handler factory to add.</param>
-    /// <returns>Updated kernel builder including the http handler factory.</returns>
-    public KernelBuilder WithHttpHandlerFactory(IDelegatingHandlerFactory httpHandlerFactory)
-    {
-        Verify.NotNull(httpHandlerFactory);
-        this._httpHandlerFactory = httpHandlerFactory;
-        return this;
-    }
-
-    /// <summary>
-    /// Add a retry handler factory to the kernel to be built.
-    /// </summary>
-    /// <param name="httpHandlerFactory">Retry handler factory to add.</param>
-    /// <returns>Updated kernel builder including the retry handler factory.</returns>
-    [Obsolete("This method is deprecated, use WithHttpHandlerFactory instead")]
-    public KernelBuilder WithRetryHandlerFactory(IDelegatingHandlerFactory httpHandlerFactory)
-    {
-        return this.WithHttpHandlerFactory(httpHandlerFactory);
-    }
-
-    /// <summary>
-    /// Adds a <typeparamref name="TService"/> instance to the services collection
-    /// </summary>
-    /// <param name="instance">The <typeparamref name="TService"/> instance.</param>
-    public KernelBuilder WithDefaultAIService<TService>(TService instance) where TService : IAIService
-    {
-        this._aiServices.SetService<TService>(instance);
-        return this;
-    }
-
-    /// <summary>
-    /// Adds a <typeparamref name="TService"/> factory method to the services collection
-    /// </summary>
-    /// <param name="factory">The factory method that creates the AI service instances of type <typeparamref name="TService"/>.</param>
-    public KernelBuilder WithDefaultAIService<TService>(Func<ILoggerFactory, TService> factory) where TService : IAIService
-    {
-        this._aiServices.SetService<TService>(() => factory(this._loggerFactory));
-        return this;
-    }
-
-    /// <summary>
-    /// Adds a <typeparamref name="TService"/> instance to the services collection
-    /// </summary>
-    /// <param name="serviceId">The service ID</param>
-    /// <param name="instance">The <typeparamref name="TService"/> instance.</param>
-    /// <param name="setAsDefault">Optional: set as the default AI service for type <typeparamref name="TService"/></param>
-    public KernelBuilder WithAIService<TService>(
-        string? serviceId,
-        TService instance,
-        bool setAsDefault = false) where TService : IAIService
-    {
-        this._aiServices.SetService<TService>(serviceId, instance, setAsDefault);
-        return this;
-    }
-
-    /// <summary>
-    /// Adds a <typeparamref name="TService"/> factory method to the services collection
-    /// </summary>
-    /// <param name="serviceId">The service ID</param>
-    /// <param name="factory">The factory method that creates the AI service instances of type <typeparamref name="TService"/>.</param>
-    /// <param name="setAsDefault">Optional: set as the default AI service for type <typeparamref name="TService"/></param>
-    public KernelBuilder WithAIService<TService>(
-        string? serviceId,
-        Func<ILoggerFactory, TService> factory,
-        bool setAsDefault = false) where TService : IAIService
-    {
-        this._aiServices.SetService<TService>(serviceId, () => factory(this._loggerFactory), setAsDefault);
-        return this;
-    }
-
-    /// <summary>
-    /// Adds a <typeparamref name="TService"/> factory method to the services collection
-    /// </summary>
-    /// <param name="serviceId">The service ID</param>
-    /// <param name="factory">The factory method that creates the AI service instances of type <typeparamref name="TService"/>.</param>
-    /// <param name="setAsDefault">Optional: set as the default AI service for type <typeparamref name="TService"/></param>
-    public KernelBuilder WithAIService<TService>(
-        string? serviceId,
-        Func<ILoggerFactory, IDelegatingHandlerFactory, TService> factory,
-        bool setAsDefault = false) where TService : IAIService
-    {
-        this._aiServices.SetService<TService>(serviceId, () => factory(this._loggerFactory, this._httpHandlerFactory), setAsDefault);
-        return this;
-    }
-
-    /// <summary>
-    /// Adds a <cref name="IAIServiceSelector"/> to the builder
-    /// </summary>
-    public KernelBuilder WithAIServiceSelector(IAIServiceSelector serviceSelector)
-    {
-        this._serviceSelector = serviceSelector;
-        return this;
+        public IServiceCollection Services { get; }
     }
 }

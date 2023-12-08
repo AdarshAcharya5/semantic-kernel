@@ -1,6 +1,5 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
-using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -51,14 +50,19 @@ public interface IAssistant
     string Instructions { get; }
 
     /// <summary>
-    /// A semantic-kernel <see cref="IKernel"/> instance associated with the assistant.
+    /// A semantic-kernel <see cref="Kernel"/> instance associated with the assistant.
     /// </summary>
-    internal IKernel Kernel { get; }
+    internal Kernel Kernel { get; }
 
     /// <summary>
     /// Tools defined for run execution.
     /// </summary>
-    internal IList<ISKFunction> Functions { get; }
+    public KernelPluginCollection Plugins { get; }
+
+    /// <summary>
+    /// Expose the assistant as a plugin.
+    /// </summary>
+    public IKernelPlugin AsPlugin();
 
     /// <summary>
     /// Creates a new assistant chat thread.
@@ -72,4 +76,18 @@ public interface IAssistant
     /// <param name="id">The id of the existing chat thread.</param>
     /// <param name="cancellationToken">A cancellation token</param>
     Task<IChatThread> GetThreadAsync(string id, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Deletes an existing assistant chat thread.
+    /// </summary>
+    /// <param name="id">The id of the existing chat thread.  Allows for null-fallthrough to simplify caller patterns.</param>
+    /// <param name="cancellationToken">A cancellation token</param>
+    Task DeleteThreadAsync(string? id, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Delete current assistant.  Terminal state - Unable to perform any
+    /// subsequent actions.
+    /// </summary>
+    /// <param name="cancellationToken">A cancellation token</param>
+    Task DeleteAsync(CancellationToken cancellationToken = default);
 }

@@ -1,12 +1,10 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
 using System;
-using System.ComponentModel;
 using System.Diagnostics.CodeAnalysis;
 using System.Text.Json.Serialization;
-using Microsoft.SemanticKernel.Diagnostics;
 
-namespace Microsoft.SemanticKernel.AI.ChatCompletion;
+namespace Microsoft.SemanticKernel.ChatCompletion;
 
 /// <summary>
 /// A description of the intended purpose of a message within a chat completions interaction.
@@ -34,11 +32,6 @@ public readonly struct AuthorRole : IEquatable<AuthorRole>
     public static AuthorRole Tool { get; } = new("tool");
 
     /// <summary>
-    /// The role that provides information about a function call result.
-    /// </summary>
-    public static AuthorRole Function { get; } = new("function");
-
-    /// <summary>
     /// Gets the label associated with this AuthorRole.
     /// </summary>
     /// <remarks>
@@ -49,7 +42,7 @@ public readonly struct AuthorRole : IEquatable<AuthorRole>
     /// <summary>
     /// Creates a new AuthorRole instance with the provided label.
     /// </summary>
-    /// <param name="label"></param>
+    /// <param name="label">The label to associate with this AuthorRole.</param>
     [JsonConstructor]
     public AuthorRole(string label)
     {
@@ -80,12 +73,10 @@ public readonly struct AuthorRole : IEquatable<AuthorRole>
         => !(left == right);
 
     /// <inheritdoc/>
-    [EditorBrowsable(EditorBrowsableState.Never)]
     public override bool Equals([NotNullWhen(true)] object? obj)
         => obj is AuthorRole otherRole && this == otherRole;
 
     /// <inheritdoc/>
-    [EditorBrowsable(EditorBrowsableState.Never)]
     public override int GetHashCode()
         => this.Label.GetHashCode();
 

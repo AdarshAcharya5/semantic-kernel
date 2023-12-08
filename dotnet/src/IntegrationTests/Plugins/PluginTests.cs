@@ -4,13 +4,13 @@ using System;
 using System.Net.Http;
 using System.Threading.Tasks;
 using Microsoft.SemanticKernel;
-using Microsoft.SemanticKernel.Functions.OpenAPI.Extensions;
-using Microsoft.SemanticKernel.Functions.OpenAPI.Model;
-using Microsoft.SemanticKernel.Functions.OpenAPI.OpenAI;
-using Microsoft.SemanticKernel.Orchestration;
+using Microsoft.SemanticKernel.Plugins.OpenApi;
+using Microsoft.SemanticKernel.Plugins.OpenApi.Model;
+using Microsoft.SemanticKernel.Plugins.OpenApi.OpenAI;
 using Xunit;
 
 namespace SemanticKernel.IntegrationTests.Plugins;
+
 public class PluginTests
 {
     [Theory]
@@ -25,22 +25,22 @@ public class PluginTests
     string countryCode)
     {
         // Arrange
-        var kernel = new KernelBuilder().Build();
+        var kernel = new Kernel();
         using HttpClient httpClient = new();
 
-        var plugin = await kernel.ImportOpenAIPluginFunctionsAsync(
+        var plugin = await kernel.ImportPluginFromOpenAIAsync(
             name,
             new Uri(pluginEndpoint),
             new OpenAIFunctionExecutionParameters(httpClient));
 
-        var contextVariables = new ContextVariables();
-        contextVariables["q"] = query;
-        contextVariables["size"] = size.ToString(System.Globalization.CultureInfo.InvariantCulture);
-        contextVariables["budget"] = budget.ToString(System.Globalization.CultureInfo.InvariantCulture);
-        contextVariables["countryCode"] = countryCode;
+        var arguments = new KernelArguments();
+        arguments["q"] = query;
+        arguments["size"] = size.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        arguments["budget"] = budget.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        arguments["countryCode"] = countryCode;
 
         // Act
-        await plugin[functionName].InvokeAsync(kernel.CreateNewContext(contextVariables));
+        await plugin[functionName].InvokeAsync(kernel, arguments);
     }
 
     [Theory]
@@ -55,22 +55,22 @@ public class PluginTests
         string countryCode)
     {
         // Arrange
-        var kernel = new KernelBuilder().Build();
+        var kernel = new Kernel();
         using HttpClient httpClient = new();
 
-        var plugin = await kernel.ImportOpenApiPluginFunctionsAsync(
+        var plugin = await kernel.ImportPluginFromOpenApiAsync(
             name,
             new Uri(pluginEndpoint),
             new OpenApiFunctionExecutionParameters(httpClient));
 
-        var contextVariables = new ContextVariables();
-        contextVariables["q"] = query;
-        contextVariables["size"] = size.ToString(System.Globalization.CultureInfo.InvariantCulture);
-        contextVariables["budget"] = budget.ToString(System.Globalization.CultureInfo.InvariantCulture);
-        contextVariables["countryCode"] = countryCode;
+        var arguments = new KernelArguments();
+        arguments["q"] = query;
+        arguments["size"] = size.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        arguments["budget"] = budget.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        arguments["countryCode"] = countryCode;
 
         // Act
-        await plugin[functionName].InvokeAsync(kernel.CreateNewContext(contextVariables));
+        await plugin[functionName].InvokeAsync(kernel, arguments);
     }
 
     [Theory]
@@ -85,22 +85,22 @@ public class PluginTests
         string countryCode)
     {
         // Arrange
-        var kernel = new KernelBuilder().Build();
+        var kernel = new Kernel();
         using HttpClient httpClient = new();
 
-        var plugin = await kernel.ImportOpenApiPluginFunctionsAsync(
+        var plugin = await kernel.ImportPluginFromOpenApiAsync(
             name,
             new Uri(pluginEndpoint),
             new OpenApiFunctionExecutionParameters(httpClient));
 
-        var contextVariables = new ContextVariables();
-        contextVariables["q"] = query;
-        contextVariables["size"] = size.ToString(System.Globalization.CultureInfo.InvariantCulture);
-        contextVariables["budget"] = budget.ToString(System.Globalization.CultureInfo.InvariantCulture);
-        contextVariables["countryCode"] = countryCode;
+        var arguments = new KernelArguments();
+        arguments["q"] = query;
+        arguments["size"] = size.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        arguments["budget"] = budget.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        arguments["countryCode"] = countryCode;
 
         // Act
-        var result = (await kernel.RunAsync(plugin[functionName], contextVariables)).GetValue<RestApiOperationResponse>();
+        var result = (await kernel.InvokeAsync(plugin[functionName], arguments)).GetValue<RestApiOperationResponse>();
 
         // Assert
         Assert.NotNull(result);
@@ -122,20 +122,20 @@ public class PluginTests
         string payload)
     {
         // Arrange
-        var kernel = new KernelBuilder().Build();
+        var kernel = new Kernel();
         using HttpClient httpClient = new();
 
         //note that this plugin is not compliant according to the underlying validator in SK
-        var plugin = await kernel.ImportOpenAIPluginFunctionsAsync(
+        var plugin = await kernel.ImportPluginFromOpenAIAsync(
             name,
             new Uri(pluginEndpoint),
             new OpenAIFunctionExecutionParameters(httpClient) { IgnoreNonCompliantErrors = true });
 
-        var contextVariables = new ContextVariables();
-        contextVariables["payload"] = payload;
+        var arguments = new KernelArguments();
+        arguments["payload"] = payload;
 
         // Act
-        await plugin[functionName].InvokeAsync(kernel.CreateNewContext(contextVariables));
+        await plugin[functionName].InvokeAsync(kernel, arguments);
     }
 
     [Theory]
@@ -153,20 +153,20 @@ public class PluginTests
         // Arrange
         using (var stream = System.IO.File.OpenRead(pluginFilePath))
         {
-            var kernel = new KernelBuilder().Build();
+            var kernel = new Kernel();
             using HttpClient httpClient = new();
 
             //note that this plugin is not compliant according to the underlying validator in SK
-            var plugin = await kernel.ImportOpenAIPluginFunctionsAsync(
+            var plugin = await kernel.ImportPluginFromOpenAIAsync(
                 name,
                 stream,
                 new OpenAIFunctionExecutionParameters(httpClient) { IgnoreNonCompliantErrors = true });
 
-            var contextVariables = new ContextVariables();
-            contextVariables["payload"] = payload;
+            var arguments = new KernelArguments();
+            arguments["payload"] = payload;
 
             // Act
-            await plugin[functionName].InvokeAsync(kernel.CreateNewContext(contextVariables));
+            await plugin[functionName].InvokeAsync(kernel, arguments);
         }
     }
 
@@ -183,19 +183,19 @@ public class PluginTests
         string payload)
     {
         // Arrange
-        var kernel = new KernelBuilder().Build();
+        var kernel = new Kernel();
         using HttpClient httpClient = new();
 
         //note that this plugin is not compliant according to the underlying validator in SK
-        var plugin = await kernel.ImportOpenAIPluginFunctionsAsync(
+        var plugin = await kernel.ImportPluginFromOpenAIAsync(
             name,
             pluginFilePath,
             new OpenAIFunctionExecutionParameters(httpClient) { IgnoreNonCompliantErrors = true });
 
-        var contextVariables = new ContextVariables();
-        contextVariables["payload"] = payload;
+        var arguments = new KernelArguments();
+        arguments["payload"] = payload;
 
         // Act
-        await plugin[functionName].InvokeAsync(kernel.CreateNewContext(contextVariables));
+        await plugin[functionName].InvokeAsync(kernel, arguments);
     }
 }

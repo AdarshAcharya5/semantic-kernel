@@ -3,20 +3,23 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.Experimental.Assistants;
-using Microsoft.SemanticKernel.Orchestration;
 using Plugins;
 using Resources;
 
 // ReSharper disable once InconsistentNaming
 /// <summary>
-/// Showcase Open AI Assistant integration with semantic kernel.
+/// Showcase Open AI Assistant integration with semantic kernel:
+/// https://platform.openai.com/docs/api-reference/assistants
 /// </summary>
 public static class Example70_Assistant
 {
+    /// <summary>
+    /// Specific model is required that supports assistants and function calling.
+    /// Currently this is limited to Open AI hosted services.
+    /// </summary>
     private const string OpenAIFunctionEnabledModel = "gpt-3.5-turbo-1106";
 
     /// <summary>
@@ -32,125 +35,170 @@ public static class Example70_Assistant
             return;
         }
 
+        // "Hello assistant"
         await RunSimpleChatAsync();
 
-        await RunWithNativeFunctionsAsync();
+        // Run assistant with "method" tool/function
+        await RunWithMethodFunctionsAsync();
 
-        await RunWithSemanticFunctionsAsync();
+        // Run assistant with "prompt" tool/function
+        await RunWithPromptFunctionsAsync();
 
+        // Run assistant as function
         await RunAsFunctionAsync();
     }
 
+    /// <summary>
+    /// Chat using the "Parrot" assistant.
+    /// Tools/functions: None
+    /// </summary>
     private static async Task RunSimpleChatAsync()
     {
         Console.WriteLine("======== Run:SimpleChat ========");
 
+        // Call the common chat-loop
         await ChatAsync(
-            "Assistants.ParrotAssistant.yaml",
+            "Assistants.ParrotAssistant.yaml", // Defined under ./Resources/Assistants
+            plugin: null, // No plugin
             "Fortune favors the bold.",
             "I came, I saw, I conquered.",
             "Practice makes perfect.");
     }
 
-    private static async Task RunWithNativeFunctionsAsync()
+    /// <summary>
+    /// Chat using the "Tool" assistant and a method function.
+    /// Tools/functions: MenuPlugin
+    /// </summary>
+    private static async Task RunWithMethodFunctionsAsync()
     {
-        Console.WriteLine("======== Run:WithNativeFunctions ========");
+        Console.WriteLine("======== Run:WithMethodFunctions ========");
 
-        IKernel kernel = new KernelBuilder().Build();
+        IKernelPlugin plugin = KernelPluginFactory.CreateFromType<MenuPlugin>();
 
-        var functions = kernel.ImportFunctions(new MenuPlugin(), nameof(MenuPlugin));
-
+        // Call the common chat-loop
         await ChatAsync(
-            "Assistants.ToolAssistant.yaml",
-            functions.Values,
+            "Assistants.ToolAssistant.yaml", // Defined under ./Resources/Assistants
+            plugin,
             "Hello",
             "What is the special soup?",
             "What is the special drink?",
             "Thank you!");
     }
 
-    private static async Task RunWithSemanticFunctionsAsync()
+    /// <summary>
+    /// Chat using the "Tool" assistant and a prompt function.
+    /// Tools/functions: spellChecker prompt function
+    /// </summary>
+    private static async Task RunWithPromptFunctionsAsync()
     {
-        Console.WriteLine("======== Run:WithSemanticFunctions ========");
+        Console.WriteLine("======== WithPromptFunctions ========");
 
-        IKernel kernel = new KernelBuilder().Build();
+        // Create a prompt function.
+        var plugin = new KernelPlugin("spelling");
+        plugin.AddFunctionFromPrompt(
+             "Correct any misspelling or gramatical errors provided in input: {{$input}}",
+              functionName: "spellChecker",
+              description: "Correct the spelling for the user input."
+        );
 
-        var functions =
-            new[]
-            {
-                kernel.CreateSemanticFunction(
-                    "Correct any misspelling or gramatical errors provided in input: {{$input}}",
-                    functionName: "spellChecker",
-                    pluginName: "test",
-                    description: "Correct the spelling for the user input."),
-            };
-
+        // Call the common chat-loop
         await ChatAsync(
-            "Assistants.ToolAssistant.yaml",
-            functions,
+            "Assistants.ToolAssistant.yaml", // Defined under ./Resources/Assistants
+            plugin,
             "Hello",
             "Is this spelled correctly: exercize",
             "What is the special soup?",
             "Thank you!");
     }
 
+    /// <summary>
+    /// Invoke assistant just like any other <see cref="KernelFunction"/>.
+    /// </summary>
     private static async Task RunAsFunctionAsync()
     {
         Console.WriteLine("======== Run:AsFunction ========");
 
+        // Create assistant, same as the other cases.
         var assistant =
-            await AssistantBuilder.FromDefinitionAsync(
-                TestConfiguration.OpenAI.ApiKey,
-                OpenAIFunctionEnabledModel,
-                EmbeddedResource.Read("Assistants.ParrotAssistant.yaml"));
+            await new AssistantBuilder()
+                .WithOpenAIChatCompletion(OpenAIFunctionEnabledModel, TestConfiguration.OpenAI.ApiKey)
+                .FromTemplate(EmbeddedResource.Read("Assistants.ParrotAssistant.yaml"))
+                .BuildAsync();
 
-        IKernel kernel = new KernelBuilder().Build();
-        var assistants = kernel.ImportFunctions(assistant, assistant.Id);
-
-        var variables = new ContextVariables
+        string? threadId = null;
+        try
         {
-            ["input"] = "Practice makes perfect."
-        };
-        var result = await kernel.RunAsync(assistants.Single().Value, variables);
-        var resultValue = result.GetValue<string>();
+            // Invoke assistant plugin function.
+            KernelArguments arguments = new("Practice makes perfect.");
 
-        var response = JsonSerializer.Deserialize<AssistantResponse>(resultValue ?? string.Empty);
-        Console.WriteLine(
-            response?.Response ??
-            $"No response from assistant: {assistant.Id}");
+            var kernel = new Kernel();
+            var result = await kernel.InvokeAsync(assistant.AsPlugin().Single(), arguments);
+
+            // Display result
+            var response = result.GetValue<AssistantResponse>();
+            threadId = response?.ThreadId;
+            Console.WriteLine(
+                response?.Message ??
+                $"No response from assistant: {assistant.Id}");
+        }
+        finally
+        {
+            await Task.WhenAll(
+                assistant.DeleteThreadAsync(threadId),
+                assistant.DeleteAsync());
+        }
     }
 
-    private static Task ChatAsync(
-         string resourcePath,
-         params string[] messages)
-    {
-        return ChatAsync(resourcePath, null, messages);
-    }
-
+    /// <summary>
+    /// Common chat loop used for: RunSimpleChatAsync, RunWithMethodFunctionsAsync, and RunWithPromptFunctionsAsync.
+    /// 1. Reads assistant definition from"resourcePath" parameter.
+    /// 2. Initializes assistant with definition and the specified "plugin".
+    /// 3. Display the assistant identifier
+    /// 4. Create a chat-thread
+    /// 5. Process the provided "messages" on the chat-thread
+    /// </summary>
     private static async Task ChatAsync(
         string resourcePath,
-        IEnumerable<ISKFunction>? functions,
+        IKernelPlugin? plugin = null,
         params string[] messages)
     {
+        // Read assistant resource
         var definition = EmbeddedResource.Read(resourcePath);
 
-        var assistant =
-            await AssistantBuilder.FromDefinitionAsync(
-                TestConfiguration.OpenAI.ApiKey,
-                OpenAIFunctionEnabledModel,
-                definition,
-                functions);
+        // Create assistant
+        IAssistant assistant =
+            await new AssistantBuilder()
+                .WithOpenAIChatCompletion(OpenAIFunctionEnabledModel, TestConfiguration.OpenAI.ApiKey)
+                .FromTemplate(definition)
+                .WithPlugin(plugin)
+                .BuildAsync();
 
-        Console.WriteLine($"[{assistant.Id}]");
-
-        var thread = await assistant.NewThreadAsync();
-        foreach (var message in messages)
+        IChatThread? thread = null;
+        try
         {
-            var messageUser = await thread.AddUserMessageAsync(message).ConfigureAwait(true);
-            DisplayMessage(messageUser);
+            // Display assistant identifier.
+            Console.WriteLine($"[{assistant.Id}]");
 
-            var assistantMessages = await thread.InvokeAsync(assistant).ConfigureAwait(true);
-            DisplayMessages(assistantMessages);
+            // Create chat thread.  Note: Thread is not bound to a single assistant.
+            thread = await assistant.NewThreadAsync();
+
+            // Process each user message and assistant response.
+            foreach (var message in messages)
+            {
+                // Add the user message
+                var messageUser = await thread.AddUserMessageAsync(message);
+                DisplayMessage(messageUser);
+
+                // Retrieve the assistant response
+                var assistantMessages = await thread.InvokeAsync(assistant);
+                DisplayMessages(assistantMessages);
+            }
+        }
+        finally
+        {
+            await Task.WhenAll(
+                thread?.DeleteAsync() ?? Task.CompletedTask,
+                assistant.DeleteAsync());
         }
     }
 

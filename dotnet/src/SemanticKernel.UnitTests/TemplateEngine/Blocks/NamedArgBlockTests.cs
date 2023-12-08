@@ -1,8 +1,6 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
-using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.SemanticKernel.Diagnostics;
-using Microsoft.SemanticKernel.Orchestration;
+using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.TemplateEngine.Blocks;
 using Xunit;
 
@@ -14,7 +12,7 @@ public class NamedArgBlockTests
     public void ItHasTheCorrectType()
     {
         // Act
-        var target = new NamedArgBlock("a=$b", NullLoggerFactory.Instance);
+        var target = new NamedArgBlock("a=$b");
 
         // Assert
         Assert.Equal(BlockTypes.NamedArg, target.Type);
@@ -30,7 +28,7 @@ public class NamedArgBlockTests
     public void ItTrimsSpaces(string input, string expected)
     {
         // Act + Assert
-        Assert.Equal(expected, new NamedArgBlock(input, NullLoggerFactory.Instance).Content);
+        Assert.Equal(expected, new NamedArgBlock(input).Content);
     }
 
     [Theory]
@@ -127,7 +125,7 @@ public class NamedArgBlockTests
     [Fact]
     public void ArgValueShouldBeNonEmpty()
     {
-        Assert.Throws<SKException>(() => new NamedArgBlock("a="));
+        Assert.Throws<KernelException>(() => new NamedArgBlock("a="));
     }
 
     [Theory]
@@ -207,7 +205,6 @@ public class NamedArgBlockTests
     {
         // Arrange
         var target = new NamedArgBlock($"a=${name}");
-        var variables = new ContextVariables { [name] = "value" };
 
         // Act + Assert
         Assert.Equal(isValid, target.IsValid(out _));
@@ -220,12 +217,60 @@ public class NamedArgBlockTests
         var target1 = new NamedArgBlock("a='b'");
         var target2 = new NamedArgBlock("a=$b");
         var target3 = new NamedArgBlock("a=\"b\"");
-        Assert.Throws<SKException>(() => new NamedArgBlock("foo"));
-        Assert.Throws<SKException>(() => new NamedArgBlock("foo=$bar=$baz"));
+        Assert.Throws<KernelException>(() => new NamedArgBlock("foo"));
+        Assert.Throws<KernelException>(() => new NamedArgBlock("foo=$bar=$baz"));
 
         // Act + Assert
         Assert.True(target1.IsValid(out _));
         Assert.True(target2.IsValid(out _));
         Assert.True(target3.IsValid(out _));
+    }
+
+    [Fact]
+    public void ItReturnsArgumentsValueAndType()
+    {
+        // Arrange
+        var target = new NamedArgBlock("a=$var");
+        var arguments = new KernelArguments()
+        {
+            ["var"] = (double)28.2,
+        };
+
+        // Act
+        var result = target.GetValue(arguments);
+
+        // Assert
+        Assert.IsType<double>(result);
+        Assert.Equal(28.2, result);
+    }
+
+    [Fact]
+    public void ItRendersToNullWithNoArgument()
+    {
+        // Arrange
+        var target = new NamedArgBlock("a=$var");
+
+        // Act
+        var result = target.GetValue(new KernelArguments());
+
+        // Assert
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void ItRendersToNullIfArgumentIsNull()
+    {
+        // Arrange
+        var target = new NamedArgBlock("a=$var");
+        var arguments = new KernelArguments()
+        {
+            ["var"] = null
+        };
+
+        // Act
+        var result = target.GetValue(arguments);
+
+        // Assert
+        Assert.Null(result);
     }
 }

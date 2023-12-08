@@ -4,8 +4,7 @@ using System;
 using System.Threading.Tasks;
 using Azure.Identity;
 using Microsoft.SemanticKernel;
-using Microsoft.SemanticKernel.AI.ChatCompletion;
-using RepoUtils;
+using Microsoft.SemanticKernel.ChatCompletion;
 
 /**
  * This example shows how to connect your app to Azure OpenAI using
@@ -19,7 +18,6 @@ using RepoUtils;
  * - Shared tokens
  * - etc.
  */
-
 // ReSharper disable once InconsistentNaming
 public static class Example26_AADAuth
 {
@@ -42,23 +40,23 @@ public static class Example26_AADAuth
             ExcludeAzurePowerShellCredential = true
         };
 
-        IKernel kernel = new KernelBuilder()
-            .WithLoggerFactory(ConsoleLogger.LoggerFactory)
+        Kernel kernel = new KernelBuilder()
             // Add Azure OpenAI chat completion service using DefaultAzureCredential AAD auth
-            .WithAzureOpenAIChatCompletionService(
+            .AddAzureOpenAIChatCompletion(
                 TestConfiguration.AzureOpenAI.ChatDeploymentName,
+                TestConfiguration.AzureOpenAI.ChatModelId,
                 TestConfiguration.AzureOpenAI.Endpoint,
                 new DefaultAzureCredential(authOptions))
             .Build();
 
-        IChatCompletion chatGPT = kernel.GetService<IChatCompletion>();
-        var chatHistory = chatGPT.CreateNewChat();
+        IChatCompletionService chatGPT = kernel.GetRequiredService<IChatCompletionService>();
+        var chatHistory = new ChatHistory();
 
         // User message
         chatHistory.AddUserMessage("Tell me a joke about hourglasses");
 
         // Bot reply
-        string reply = await chatGPT.GenerateMessageAsync(chatHistory);
+        var reply = await chatGPT.GetChatMessageContentAsync(chatHistory);
         Console.WriteLine(reply);
 
         /* Output: Why did the hourglass go to the doctor? Because it was feeling a little run down! */

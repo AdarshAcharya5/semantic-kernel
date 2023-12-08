@@ -1,20 +1,12 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
-using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.SemanticKernel.AI.ChatCompletion;
-using Microsoft.SemanticKernel.AI.TextCompletion;
-using Microsoft.SemanticKernel.Connectors.AI.OpenAI.ChatCompletion;
-using Microsoft.SemanticKernel.Diagnostics;
-using Microsoft.SemanticKernel.Experimental.Assistants.Extensions;
+using Microsoft.SemanticKernel.Experimental.Assistants.Exceptions;
 using Microsoft.SemanticKernel.Experimental.Assistants.Models;
-using Microsoft.SemanticKernel.Http;
-using Microsoft.SemanticKernel.Services;
 
 namespace Microsoft.SemanticKernel.Experimental.Assistants.Internal;
 
@@ -27,10 +19,10 @@ internal sealed class Assistant : IAssistant
     public string Id => this._model.Id;
 
     /// <inheritdoc/>
-    public IKernel Kernel { get; }
+    public Kernel Kernel { get; }
 
     /// <inheritdoc/>
-    public IList<ISKFunction> Functions { get; }
+    public KernelPluginCollection Plugins => this.Kernel.Plugins;
 
     /// <inheritdoc/>
 #pragma warning disable CA1720 // Identifier contains type name - We don't control the schema
@@ -56,28 +48,26 @@ internal sealed class Assistant : IAssistant
 
     private readonly OpenAIRestContext _restContext;
     private readonly AssistantModel _model;
+    private IKernelPlugin? _assistantPlugin;
+    private bool _isDeleted;
 
     /// <summary>
     /// Create a new assistant.
     /// </summary>
     /// <param name="restContext">A context for accessing OpenAI REST endpoint</param>
-    /// <param name="chatService">An OpenAI chat service.</param>
     /// <param name="assistantModel">The assistant definition</param>
-    /// <param name="functions">Functions to initialize as assistant tools</param>
+    /// <param name="plugins">Plugins to initialize as assistant tools</param>
     /// <param name="cancellationToken">A cancellation token</param>
     /// <returns>An initialized <see cref="Assistant"> instance.</see></returns>
     public static async Task<IAssistant> CreateAsync(
         OpenAIRestContext restContext,
-        OpenAIChatCompletion chatService,
         AssistantModel assistantModel,
-        IEnumerable<ISKFunction>? functions = null,
+        IEnumerable<IKernelPlugin>? plugins = null,
         CancellationToken cancellationToken = default)
     {
-        var resultModel =
-            await restContext.CreateAssistantModelAsync(assistantModel, cancellationToken).ConfigureAwait(false) ??
-            throw new SKException("Unexpected failure creating assistant: no result.");
+        var resultModel = await restContext.CreateAssistantModelAsync(assistantModel, cancellationToken).ConfigureAwait(false);
 
-        return new Assistant(resultModel, chatService, restContext, functions);
+        return new Assistant(resultModel, restContext, plugins);
     }
 
     /// <summary>
@@ -85,66 +75,103 @@ internal sealed class Assistant : IAssistant
     /// </summary>
     internal Assistant(
         AssistantModel model,
-        OpenAIChatCompletion chatService,
         OpenAIRestContext restContext,
-        IEnumerable<ISKFunction>? functions = null)
+        IEnumerable<IKernelPlugin>? plugins = null)
     {
         this._model = model;
         this._restContext = restContext;
-        this.Functions = new List<ISKFunction>(functions ?? Array.Empty<ISKFunction>());
 
-        var functionCollection = new FunctionCollection();
-        foreach (var function in this.Functions)
+        KernelBuilder builder = new();
+        builder.AddOpenAIChatCompletion(this._model.Model, this._restContext.ApiKey);
+        this.Kernel = builder.Build();
+
+        if (plugins is not null)
         {
-            functionCollection.AddFunction(function);
+            this.Kernel.Plugins.AddRange(plugins);
         }
-
-        var services = new AIServiceCollection();
-        services.SetService<IChatCompletion>(chatService);
-        services.SetService<ITextCompletion>(chatService);
-        this.Kernel =
-            new Kernel(
-                functionCollection,
-                services.Build(),
-                memory: null!,
-                NullHttpHandlerFactory.Instance,
-                loggerFactory: null);
     }
+
+    public IKernelPlugin AsPlugin() => this._assistantPlugin ?? this.DefinePlugin();
 
     /// <inheritdoc/>
     public Task<IChatThread> NewThreadAsync(CancellationToken cancellationToken = default)
     {
+        this.ThrowIfDeleted();
+
         return ChatThread.CreateAsync(this._restContext, cancellationToken);
     }
 
     /// <inheritdoc/>
     public Task<IChatThread> GetThreadAsync(string id, CancellationToken cancellationToken = default)
     {
+        this.ThrowIfDeleted();
+
         return ChatThread.GetAsync(this._restContext, id, cancellationToken);
     }
 
+    /// <inheritdoc/>
+    public async Task DeleteThreadAsync(string? id, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(id))
+        {
+            return;
+        }
+
+        await this._restContext.DeleteThreadModelAsync(id!, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <inheritdoc/>
+    public async Task DeleteAsync(CancellationToken cancellationToken = default)
+    {
+        if (this._isDeleted)
+        {
+            return;
+        }
+
+        await this._restContext.DeleteAssistantModelAsync(this.Id, cancellationToken).ConfigureAwait(false);
+        this._isDeleted = true;
+    }
+
     /// <summary>
-    /// Marshal thread run through <see cref="ISKFunction"/> interface.
+    /// Marshal thread run through <see cref="KernelFunction"/> interface.
     /// </summary>
     /// <param name="input">The user input</param>
     /// <param name="cancellationToken">A cancellation token.</param>
     /// <returns>An assistant response (<see cref="AssistantResponse"/></returns>
-    [SKFunction, Description("Provide input to assistant a response")]
-    public async Task<string> AskAsync(
-        [Description("The input for the assistant.")]
+    private async Task<AssistantResponse> AskAsync(
+        [Description("The user message provided to the assistant.")]
         string input,
         CancellationToken cancellationToken = default)
     {
         var thread = await this.NewThreadAsync(cancellationToken).ConfigureAwait(false);
+
         await thread.AddUserMessageAsync(input, cancellationToken).ConfigureAwait(false);
         var message = await thread.InvokeAsync(this, cancellationToken).ConfigureAwait(false);
         var response =
             new AssistantResponse
             {
                 ThreadId = thread.Id,
-                Response = string.Concat(message.Select(m => m.Content)),
+                Message = string.Concat(message.Select(m => m.Content)),
             };
 
-        return JsonSerializer.Serialize(response);
+        return response;
+    }
+
+    private IKernelPlugin DefinePlugin()
+    {
+        var assistantPlugin = new KernelPlugin(this.Name ?? this.Id);
+
+        var functionAsk = KernelFunctionFactory.CreateFromMethod(this.AskAsync, description: this.Description);
+        assistantPlugin.AddFunction(functionAsk);
+
+        return this._assistantPlugin = assistantPlugin;
+    }
+
+    private void ThrowIfDeleted()
+    {
+        if (this._isDeleted)
+        {
+            throw new AssistantException($"{nameof(Assistant)}: {this.Id} has been deleted.");
+        }
     }
 }

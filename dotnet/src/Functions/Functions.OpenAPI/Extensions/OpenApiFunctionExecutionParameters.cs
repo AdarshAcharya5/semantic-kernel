@@ -3,10 +3,10 @@
 using System;
 using System.Collections.Generic;
 using System.Net.Http;
-using Microsoft.SemanticKernel.Diagnostics;
-using Microsoft.SemanticKernel.Functions.OpenAPI.Authentication;
+using Microsoft.SemanticKernel.Http;
+using Microsoft.SemanticKernel.Plugins.OpenApi.Authentication;
 
-namespace Microsoft.SemanticKernel.Functions.OpenAPI.Extensions;
+namespace Microsoft.SemanticKernel.Plugins.OpenApi;
 
 /// <summary>
 /// OpenAPI function execution parameters.
@@ -79,7 +79,7 @@ public class OpenApiFunctionExecutionParameters
         HttpClient? httpClient = null,
         AuthenticateRequestAsyncCallback? authCallback = null,
         Uri? serverUrlOverride = null,
-        string userAgent = Telemetry.HttpUserAgent,
+        string userAgent = HttpHeaderValues.UserAgent,
         bool ignoreNonCompliantErrors = false,
         bool enableDynamicOperationPayload = false,
         bool enablePayloadNamespacing = false,

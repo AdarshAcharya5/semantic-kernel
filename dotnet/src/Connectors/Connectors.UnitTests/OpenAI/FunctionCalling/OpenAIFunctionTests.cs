@@ -2,10 +2,12 @@
 
 using System.Text.Json;
 using Azure.AI.OpenAI;
-using Microsoft.SemanticKernel.Connectors.AI.OpenAI.AzureSdk;
+using Microsoft.SemanticKernel;
+using Microsoft.SemanticKernel.Connectors.OpenAI;
 using Xunit;
 
 namespace SemanticKernel.Connectors.UnitTests.OpenAI.FunctionCalling;
+
 public sealed class OpenAIFunctionTests
 {
     [Fact]
@@ -55,7 +57,6 @@ public sealed class OpenAIFunctionTests
         {
             Name = "param1",
             Description = "String param 1",
-            Type = "string",
             IsRequired = true,
             ParameterType = typeof(string)
         };
@@ -64,7 +65,6 @@ public sealed class OpenAIFunctionTests
         {
             Name = "param2",
             Description = "Int param 2",
-            Type = "number",
             IsRequired = true,
             ParameterType = typeof(int)
         };
@@ -86,13 +86,13 @@ public sealed class OpenAIFunctionTests
 
         FunctionDefinition functionDefinition = sut.ToFunctionDefinition();
 
-        var exp = JsonSerializer.Serialize(JsonDocument.Parse(expectedParameterSchema));
-        var act = JsonSerializer.Serialize(JsonDocument.Parse(functionDefinition.Parameters));
+        var exp = JsonSerializer.Serialize(KernelJsonSchema.Parse(expectedParameterSchema));
+        var act = JsonSerializer.Serialize(KernelJsonSchema.Parse(functionDefinition.Parameters));
 
         Assert.NotNull(functionDefinition);
         Assert.Equal("Tests_TestFunction", functionDefinition.Name);
         Assert.Equal("My test function", functionDefinition.Description);
-        Assert.Equal(JsonSerializer.Serialize(JsonDocument.Parse(expectedParameterSchema)), JsonSerializer.Serialize(JsonDocument.Parse(functionDefinition.Parameters)));
+        Assert.Equal(JsonSerializer.Serialize(KernelJsonSchema.Parse(expectedParameterSchema)), JsonSerializer.Serialize(KernelJsonSchema.Parse(functionDefinition.Parameters)));
     }
 
     [Fact]
@@ -104,7 +104,6 @@ public sealed class OpenAIFunctionTests
         {
             Name = "param1",
             Description = "String param 1",
-            Type = "string",
             IsRequired = true,
             ParameterType = typeof(string)
         };
@@ -113,7 +112,6 @@ public sealed class OpenAIFunctionTests
         {
             Name = "param2",
             Description = "Int param 2",
-            Type = "number",
             IsRequired = true,
             ParameterType = typeof(int)
         };
@@ -131,6 +129,6 @@ public sealed class OpenAIFunctionTests
         Assert.NotNull(functionDefinition);
         Assert.Equal("Tests_TestFunction", functionDefinition.Name);
         Assert.Equal("My test function", functionDefinition.Description);
-        Assert.Equal(JsonSerializer.Serialize(JsonDocument.Parse(expectedParameterSchema)), JsonSerializer.Serialize(JsonDocument.Parse(functionDefinition.Parameters)));
+        Assert.Equal(JsonSerializer.Serialize(KernelJsonSchema.Parse(expectedParameterSchema)), JsonSerializer.Serialize(KernelJsonSchema.Parse(functionDefinition.Parameters)));
     }
 }
