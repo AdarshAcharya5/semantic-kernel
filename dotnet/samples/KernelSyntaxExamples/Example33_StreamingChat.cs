@@ -6,10 +6,7 @@ using System.Threading.Tasks;
 using Microsoft.SemanticKernel.ChatCompletion;
 using Microsoft.SemanticKernel.Connectors.OpenAI;
 
-/**
- * The following example shows how to use Semantic Kernel with streaming Chat Completion
- */
-// ReSharper disable once InconsistentNaming
+// The following example shows how to use Semantic Kernel with streaming Chat Completion
 public static class Example33_StreamingChat
 {
     public static async Task RunAsync()
@@ -32,10 +29,10 @@ public static class Example33_StreamingChat
         Console.WriteLine("======== Azure Open AI - ChatGPT Streaming ========");
 
         AzureOpenAIChatCompletionService chatCompletionService = new(
-           TestConfiguration.AzureOpenAI.ChatDeploymentName,
-           TestConfiguration.AzureOpenAI.ChatModelId,
-           TestConfiguration.AzureOpenAI.Endpoint,
-           TestConfiguration.AzureOpenAI.ApiKey);
+            deploymentName: TestConfiguration.AzureOpenAI.ChatDeploymentName,
+            endpoint: TestConfiguration.AzureOpenAI.Endpoint,
+            apiKey: TestConfiguration.AzureOpenAI.ApiKey,
+            modelId: TestConfiguration.AzureOpenAI.ChatModelId);
 
         await StartStreamingChatAsync(chatCompletionService);
     }

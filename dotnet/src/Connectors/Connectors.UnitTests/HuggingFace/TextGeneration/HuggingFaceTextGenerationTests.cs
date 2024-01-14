@@ -6,6 +6,7 @@ using System.Net.Http;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
+using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.Connectors.HuggingFace;
 using Microsoft.SemanticKernel.TextGeneration;
 using Xunit;
@@ -175,7 +176,7 @@ public sealed class HuggingFaceTextGenerationTests : IDisposable
         var content = contents.SingleOrDefault();
         Assert.NotNull(content);
 
-        Assert.Equal("This is test completion response", content);
+        Assert.Equal("This is test completion response", content.Text);
     }
 
     [Fact]

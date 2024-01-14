@@ -8,32 +8,29 @@ using Microsoft.SemanticKernel.ChatCompletion;
 using Microsoft.SemanticKernel.Plugins.Core;
 using Resources;
 
-/**
- * Scenario:
- *  - the user is reading a wikipedia page, they select a piece of text and they ask AI to extract some information.
- *  - the app explicitly uses the Chat model to get a result.
- *
- * The following example shows how to:
- *
- * - Use the prompt template engine to render prompts, without executing them.
- *   This can be used to leverage the template engine (which executes functions internally)
- *   to generate prompts and use them programmatically, without executing them like prompt functions.
- *
- * - Use rendered prompts to create the context of System and User messages sent to Chat models
- *   like "gpt-3.5-turbo"
- *
- * Note: normally you would work with Prompt Functions to automatically send a prompt to a model
- *       and get a response. In this case we use the Chat model, sending a chat history object, which
- *       includes some instructions, some context (the text selected), and the user query.
- *
- *       We use the prompt template engine to craft the strings with all of this information.
- *
- *       Out of scope and not in the example: if needed, one could go further and use a semantic
- *       function (with extra cost) asking AI to generate the text to send to the Chat model.
- *
- */
-// ReSharper disable CommentTypo
-// ReSharper disable once InconsistentNaming
+/// <summary>
+/// Scenario:
+///  - the user is reading a wikipedia page, they select a piece of text and they ask AI to extract some information.
+///  - the app explicitly uses the Chat model to get a result.
+///
+/// The following example shows how to:
+///
+/// - Use the prompt template engine to render prompts, without executing them.
+///   This can be used to leverage the template engine (which executes functions internally)
+///   to generate prompts and use them programmatically, without executing them like prompt functions.
+///
+/// - Use rendered prompts to create the context of System and User messages sent to Chat models
+///   like "gpt-3.5-turbo"
+///
+/// Note: normally you would work with Prompt Functions to automatically send a prompt to a model
+///       and get a response. In this case we use the Chat model, sending a chat history object, which
+///       includes some instructions, some context (the text selected), and the user query.
+///
+///       We use the prompt template engine to craft the strings with all of this information.
+///
+///       Out of scope and not in the example: if needed, one could go further and use a semantic
+///       function (with extra cost) asking AI to generate the text to send to the Chat model.
+/// </summary>
 public static class Example30_ChatWithPrompts
 {
     public static async Task RunAsync()
@@ -41,16 +38,16 @@ public static class Example30_ChatWithPrompts
         Console.WriteLine("======== Chat with prompts ========");
 
         /* Load 3 files:
-         * - 28-system-prompt.txt: the system prompt, used to initialize the chat session.
-         * - 28-user-context.txt:  the user context, e.g. a piece of a document the user selected and is asking to process.
-         * - 28-user-prompt.txt:   the user prompt, just for demo purpose showing that one can leverage the same approach also to augment user messages.
+         * - 30-system-prompt.txt: the system prompt, used to initialize the chat session.
+         * - 30-user-context.txt:  the user context, e.g. a piece of a document the user selected and is asking to process.
+         * - 30-user-prompt.txt:   the user prompt, just for demo purpose showing that one can leverage the same approach also to augment user messages.
          */
 
         var systemPromptTemplate = EmbeddedResource.Read("30-system-prompt.txt");
         var selectedText = EmbeddedResource.Read("30-user-context.txt");
         var userPromptTemplate = EmbeddedResource.Read("30-user-prompt.txt");
 
-        Kernel kernel = new KernelBuilder()
+        Kernel kernel = Kernel.CreateBuilder()
             .AddOpenAIChatCompletion(TestConfiguration.OpenAI.ChatModelId, TestConfiguration.OpenAI.ApiKey, serviceId: "chat")
             .Build();
 
@@ -61,13 +58,13 @@ public static class Example30_ChatWithPrompts
         // Adding required arguments referenced by the prompt templates.
         var arguments = new KernelArguments
         {
-            // Put the selected document into the variable used by the system prompt (see 28-system-prompt.txt).
+            // Put the selected document into the variable used by the system prompt (see 30-system-prompt.txt).
             ["selectedText"] = selectedText,
 
-            // Demo another variable, e.g. when the chat started, used by the system prompt (see 28-system-prompt.txt).
+            // Demo another variable, e.g. when the chat started, used by the system prompt (see 30-system-prompt.txt).
             ["startTime"] = DateTimeOffset.Now.ToString("hh:mm:ss tt zz", CultureInfo.CurrentCulture),
 
-            // This is the user message, store it in the variable used by 28-user-prompt.txt
+            // This is the user message, store it in the variable used by 30-user-prompt.txt
             ["userMessage"] = "extract locations as a bullet point list"
         };
 

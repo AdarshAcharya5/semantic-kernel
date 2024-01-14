@@ -9,7 +9,6 @@ using Microsoft.SemanticKernel.Plugins.Core;
 using Plugins;
 using RepoUtils;
 
-// ReSharper disable once InconsistentNaming
 public static class Example10_DescribeAllPluginsAndFunctions
 {
     /// <summary>
@@ -19,9 +18,7 @@ public static class Example10_DescribeAllPluginsAndFunctions
     /// </summary>
     public static Task RunAsync()
     {
-        Console.WriteLine("======== Describe all plugins and functions ========");
-
-        var kernel = new KernelBuilder()
+        var kernel = Kernel.CreateBuilder()
             .AddOpenAIChatCompletion(
                 modelId: TestConfiguration.OpenAI.ChatModelId,
                 apiKey: TestConfiguration.OpenAI.ApiKey)
@@ -49,9 +46,9 @@ public static class Example10_DescribeAllPluginsAndFunctions
 
         var functions = kernel.Plugins.GetFunctionsMetadata();
 
-        Console.WriteLine("*****************************************");
+        Console.WriteLine("**********************************************");
         Console.WriteLine("****** Registered plugins and functions ******");
-        Console.WriteLine("*****************************************");
+        Console.WriteLine("**********************************************");
         Console.WriteLine();
 
         foreach (KernelFunctionMetadata func in functions)
@@ -64,6 +61,7 @@ public static class Example10_DescribeAllPluginsAndFunctions
 
     private static void PrintFunction(KernelFunctionMetadata func)
     {
+        Console.WriteLine($"Plugin: {func.PluginName}");
         Console.WriteLine($"   {func.Name}: {func.Description}");
 
         if (func.Parameters.Count > 0)
@@ -80,12 +78,11 @@ public static class Example10_DescribeAllPluginsAndFunctions
     }
 }
 
-#pragma warning disable CS1587 // XML comment is not placed on a valid language element
 /** Sample output:
 
-*****************************************
-****** Native plugins and functions ******
-*****************************************
+**********************************************
+****** Registered plugins and functions ******
+**********************************************
 
 Plugin: StaticTextPlugin
    Uppercase: Change all string chars to uppercase
@@ -93,6 +90,7 @@ Plugin: StaticTextPlugin
       - input: Text to uppercase
         default: ''
 
+Plugin: StaticTextPlugin
    AppendDay: Append the day variable
       Params:
       - input: Text to append to
@@ -100,42 +98,72 @@ Plugin: StaticTextPlugin
       - day: Value of the day to append
         default: ''
 
-Plugin: TextPlugin
-   Uppercase: Convert a string to uppercase.
-      Params:
-      - input: Text to uppercase
-        default: ''
-
+Plugin: AnotherTextPlugin
    Trim: Trim whitespace from the start and end of a string.
-      Params:
-      - input: Text to edit
-        default: ''
-
-   TrimStart: Trim whitespace from the start of a string.
-      Params:
-      - input: Text to edit
-        default: ''
-
-   TrimEnd: Trim whitespace from the end of a string.
-      Params:
-      - input: Text to edit
-        default: ''
-
-   Lowercase: Convert a string to lowercase.
-      Params:
-      - input: Text to lowercase
-        default: ''
-
-*****************************************
-***** Semantic plugins and functions *****
-*****************************************
-
-Plugin: Writing
-   Novel: Write a bedtime story
       Params:
       - input:
         default: ''
-      - language:
+
+Plugin: AnotherTextPlugin
+   TrimStart: Trim whitespace from the start of a string.
+      Params:
+      - input:
+        default: ''
+
+Plugin: AnotherTextPlugin
+   TrimEnd: Trim whitespace from the end of a string.
+      Params:
+      - input:
+        default: ''
+
+Plugin: AnotherTextPlugin
+   Uppercase: Convert a string to uppercase.
+      Params:
+      - input:
+        default: ''
+
+Plugin: AnotherTextPlugin
+   Lowercase: Convert a string to lowercase.
+      Params:
+      - input:
+        default: ''
+
+Plugin: AnotherTextPlugin
+   Length: Get the length of a string.
+      Params:
+      - input:
+        default: ''
+
+Plugin: AnotherTextPlugin
+   Concat: Concat two strings into one.
+      Params:
+      - input: First input to concatenate with
+        default: ''
+      - input2: Second input to concatenate with
+        default: ''
+
+Plugin: AnotherTextPlugin
+   Echo: Echo the input string. Useful for capturing plan input for use in multiple functions.
+      Params:
+      - text: Input string to echo.
+        default: ''
+
+Plugin: SummarizePlugin
+   MakeAbstractReadable: Given a scientific white paper abstract, rewrite it to make it more readable
+      Params:
+      - input:
+        default: ''
+
+Plugin: SummarizePlugin
+   Notegen: Automatically generate compact notes for any text or text document.
+      Params:
+      - input:
+        default: ''
+
+Plugin: SummarizePlugin
+   Summarize: Summarize given text or any text document
+      Params:
+      - input: Text to summarize
         default: ''
 
 Plugin: SummarizePlugin
@@ -144,38 +172,4 @@ Plugin: SummarizePlugin
       - input:
         default: ''
 
-   Summarize: Summarize given text or any text document
-      Params:
-      - input: Text to summarize
-        default: ''
-
-   MakeAbstractReadable: Given a scientific white paper abstract, rewrite it to make it more readable
-      Params:
-      - input:
-        default: ''
-
-   TopicsMore: Generate list of topics for long length content
-      Params:
-      - input: Block of text to analyze
-        default: ''
-      - previousResults: List of topics found from previous blocks of text
-        default: ''
-
-   Notegen: Automatically generate compact notes for any text or text document.
-      Params:
-      - input:
-        default: ''
-
-   ActionItems: unknown function
-
-   SummarizeMore: Summarize given text or any text document
-      Params:
-      - input: Block of text to analyze
-        default: ''
-      - previousResults: Overview generated from previous blocks of text
-        default: ''
-      - conversationType: Text type, e.g. chat, email thread, document
-        default: ''
-
 */
-#pragma warning restore CS1587 // XML comment is not placed on a valid language element

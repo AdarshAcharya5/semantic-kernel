@@ -10,7 +10,6 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.SemanticKernel.Events;
 using Microsoft.SemanticKernel.Services;
 
 namespace Microsoft.SemanticKernel;
@@ -58,17 +57,21 @@ public sealed class Kernel
         if (this._plugins is null)
         {
             // Otherwise, enumerate any plugins that may have been registered directly.
-            IEnumerable<IKernelPlugin> e = this.Services.GetServices<IKernelPlugin>();
+            IEnumerable<KernelPlugin> e = this.Services.GetServices<KernelPlugin>();
 
             // It'll be common not to have any plugins directly registered as a service.
             // If we can efficiently tell there aren't any, avoid proactively allocating
             // the plugins collection.
-            if (e is not ICollection<IKernelPlugin> c || c.Count != 0)
+            if (e is not ICollection<KernelPlugin> c || c.Count != 0)
             {
                 this._plugins = new(e);
             }
         }
     }
+
+    /// <summary>Creates a builder for constructing <see cref="Kernel"/> instances.</summary>
+    /// <returns>A new <see cref="IKernelBuilder"/> instance.</returns>
+    public static IKernelBuilder CreateBuilder() => new KernelBuilder();
 
     /// <summary>
     /// Clone the <see cref="Kernel"/> object to create a new instance that may be mutated without affecting the current instance.
@@ -80,7 +83,7 @@ public sealed class Kernel
     /// The same <see cref="IServiceProvider"/> reference as is returned by the current instance's <see cref="Kernel.Services"/>.
     /// </item>
     /// <item>
-    /// A new <see cref="KernelPluginCollection"/> instance initialized with the same <see cref="IKernelPlugin"/> instances as are stored by the current instance's <see cref="Kernel.Plugins"/> collection.
+    /// A new <see cref="KernelPluginCollection"/> instance initialized with the same <see cref="KernelPlugin"/> instances as are stored by the current instance's <see cref="Kernel.Plugins"/> collection.
     /// Changes to the new instance's plugin collection will not affect the current instance's plugin collection, and vice versa.
     /// </item>
     /// <item>
@@ -166,49 +169,43 @@ public sealed class Kernel
     /// <summary>
     /// Provides an event that's raised prior to a function's invocation.
     /// </summary>
+    [Experimental("SKEXP0004")]
     public event EventHandler<FunctionInvokingEventArgs>? FunctionInvoking;
 
     /// <summary>
     /// Provides an event that's raised after a function's invocation.
     /// </summary>
+    [Experimental("SKEXP0004")]
     public event EventHandler<FunctionInvokedEventArgs>? FunctionInvoked;
 
     /// <summary>
     /// Provides an event that's raised prior to a prompt being rendered.
     /// </summary>
+    [Experimental("SKEXP0004")]
     public event EventHandler<PromptRenderingEventArgs>? PromptRendering;
 
     /// <summary>
     /// Provides an event that's raised after a prompt is rendered.
     /// </summary>
+    [Experimental("SKEXP0004")]
     public event EventHandler<PromptRenderedEventArgs>? PromptRendered;
 
     #region GetServices
-    /// <summary>Gets a service from the <see cref="Services"/> collection.</summary>
+    /// <summary>Gets a required service from the <see cref="Services"/> provider.</summary>
     /// <typeparam name="T">Specifies the type of the service to get.</typeparam>
-    /// <param name="serviceId">An object that specifies the key of the service to get.</param>
+    /// <param name="serviceKey">An object that specifies the key of the service to get.</param>
     /// <returns>The found service instance.</returns>
     /// <exception cref="KernelException">A service of the specified type and name could not be found.</exception>
-    /// <remarks>
-    /// The behavior of this method is not the same as that of <see cref="IServiceProvider.GetService(Type)"/>
-    /// on the exposed <see cref="Services"/>. Rather, it is opinionated view around it. If a <paramref name="serviceId"/>
-    /// is provided, it will attempt to find a service registered with that key. If no <paramref name="serviceId"/>
-    /// is provided, it will attempt to find any service registered, regardless of whether it was registered with
-    /// with a key. If multiple services meet the criteria, it will return one of those registered, but no guarantee
-    /// on exactly which. For certain services, like <see cref="ILoggerFactory"/>, it will also return a default implementation
-    /// if no key was specified and no service was found. If it's able to find the specified service, that service is returned.
-    /// Otherwise, an exception is thrown.
-    /// </remarks>
-    public T GetRequiredService<T>(string? serviceId = null) where T : class
+    public T GetRequiredService<T>(object? serviceKey = null) where T : class
     {
         T? service = null;
 
-        if (serviceId is not null)
+        if (serviceKey is not null)
         {
             if (this.Services is IKeyedServiceProvider)
             {
                 // We were given a service ID, so we need to use the keyed service lookup.
-                service = this.Services.GetRequiredKeyedService<T>(serviceId);
+                service = this.Services.GetKeyedService<T>(serviceKey);
             }
         }
         else
@@ -228,9 +225,9 @@ public sealed class Kernel
         if (service is null)
         {
             string message =
-                serviceId is null ? $"Service of type '{typeof(T)}' not registered." :
-                this.Services is not IKeyedServiceProvider ? $"Key '{serviceId}' specified but service provider '{this.Services}' is not a {nameof(IKeyedServiceProvider)}." :
-                $"Service of type '{typeof(T)}' and key '{serviceId}' not registered.";
+                serviceKey is null ? $"Service of type '{typeof(T)}' not registered." :
+                this.Services is not IKeyedServiceProvider ? $"Key '{serviceKey}' specified but service provider '{this.Services}' is not a {nameof(IKeyedServiceProvider)}." :
+                $"Service of type '{typeof(T)}' and key '{serviceKey}' not registered.";
 
             throw new KernelException(message);
         }
@@ -253,7 +250,7 @@ public sealed class Kernel
             // mapping. We can query for that service and and then use it to try to get a service.
             if (this.Services.GetKeyedService<Dictionary<Type, HashSet<object?>>>(KernelServiceTypeToKeyMappings) is { } typeToKeyMappings)
             {
-                if (typeToKeyMappings.TryGetValue(typeof(T), out HashSet<object?> keys))
+                if (typeToKeyMappings.TryGetValue(typeof(T), out HashSet<object?>? keys))
                 {
                     return keys.SelectMany(key => this.Services.GetKeyedServices<T>(key));
                 }
@@ -268,6 +265,7 @@ public sealed class Kernel
     #endregion
 
     #region Internal Event Helpers
+    [Experimental("SKEXP0004")]
     internal FunctionInvokingEventArgs? OnFunctionInvoking(KernelFunction function, KernelArguments arguments)
     {
         FunctionInvokingEventArgs? eventArgs = null;
@@ -280,6 +278,7 @@ public sealed class Kernel
         return eventArgs;
     }
 
+    [Experimental("SKEXP0004")]
     internal FunctionInvokedEventArgs? OnFunctionInvoked(KernelFunction function, KernelArguments arguments, FunctionResult result)
     {
         FunctionInvokedEventArgs? eventArgs = null;
@@ -292,6 +291,7 @@ public sealed class Kernel
         return eventArgs;
     }
 
+    [Experimental("SKEXP0004")]
     internal PromptRenderingEventArgs? OnPromptRendering(KernelFunction function, KernelArguments arguments)
     {
         PromptRenderingEventArgs? eventArgs = null;
@@ -304,6 +304,7 @@ public sealed class Kernel
         return eventArgs;
     }
 
+    [Experimental("SKEXP0004")]
     internal PromptRenderedEventArgs? OnPromptRendered(KernelFunction function, KernelArguments arguments, string renderedPrompt)
     {
         PromptRenderedEventArgs? eventArgs = null;
@@ -434,14 +435,42 @@ public sealed class Kernel
     /// The function will not be invoked until an enumerator is retrieved from the returned <see cref="IAsyncEnumerable{T}"/>
     /// and its iteration initiated via an initial call to <see cref="IAsyncEnumerator{T}.MoveNextAsync"/>.
     /// </remarks>
-    public IAsyncEnumerable<StreamingContentBase> InvokeStreamingAsync(
+    public IAsyncEnumerable<StreamingKernelContent> InvokeStreamingAsync(
         KernelFunction function,
         KernelArguments? arguments = null,
         CancellationToken cancellationToken = default)
     {
         Verify.NotNull(function);
 
-        return function.InvokeStreamingAsync<StreamingContentBase>(this, arguments, CancellationToken.None);
+        return function.InvokeStreamingAsync<StreamingKernelContent>(this, arguments, cancellationToken);
+    }
+
+    /// <summary>
+    /// Invokes the <see cref="KernelFunction"/> and streams its results.
+    /// </summary>
+    /// <param name="pluginName">The name of the plugin containing the function to invoke. If null, all plugins will be searched for the first function of the specified name.</param>
+    /// <param name="functionName">The name of the function to invoke.</param>
+    /// <param name="arguments">The arguments to pass to the function's invocation, including any <see cref="PromptExecutionSettings"/>.</param>
+    /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
+    /// <returns>An <see cref="IAsyncEnumerable{T}"/> for streaming the results of the function's invocation.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="functionName"/> is null.</exception>
+    /// <exception cref="ArgumentException"><paramref name="functionName"/> is composed entirely of whitespace.</exception>
+    /// <exception cref="KernelFunctionCanceledException">The <see cref="KernelFunction"/>'s invocation was canceled.</exception>
+    /// <remarks>
+    /// The function will not be invoked until an enumerator is retrieved from the returned <see cref="IAsyncEnumerable{T}"/>
+    /// and its iteration initiated via an initial call to <see cref="IAsyncEnumerator{T}.MoveNextAsync"/>.
+    /// </remarks>
+    public IAsyncEnumerable<StreamingKernelContent> InvokeStreamingAsync(
+        string? pluginName,
+        string functionName,
+        KernelArguments? arguments = null,
+        CancellationToken cancellationToken = default)
+    {
+        Verify.NotNullOrWhiteSpace(functionName);
+
+        var function = this.Plugins.GetFunction(pluginName, functionName);
+
+        return function.InvokeStreamingAsync<StreamingKernelContent>(this, arguments, cancellationToken);
     }
 
     /// <summary>
@@ -462,6 +491,34 @@ public sealed class Kernel
         CancellationToken cancellationToken = default)
     {
         Verify.NotNull(function);
+
+        return function.InvokeStreamingAsync<T>(this, arguments, cancellationToken);
+    }
+
+    /// <summary>
+    /// Invokes the <see cref="KernelFunction"/> and streams its results.
+    /// </summary>
+    /// <param name="pluginName">The name of the plugin containing the function to invoke. If null, all plugins will be searched for the first function of the specified name.</param>
+    /// <param name="functionName">The name of the function to invoke.</param>
+    /// <param name="arguments">The arguments to pass to the function's invocation, including any <see cref="PromptExecutionSettings"/>.</param>
+    /// <param name="cancellationToken">The <see cref="CancellationToken"/> to monitor for cancellation requests. The default is <see cref="CancellationToken.None"/>.</param>
+    /// <returns>An <see cref="IAsyncEnumerable{T}"/> for streaming the results of the function's invocation.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="functionName"/> is null.</exception>
+    /// <exception cref="ArgumentException"><paramref name="functionName"/> is composed entirely of whitespace.</exception>
+    /// <exception cref="KernelFunctionCanceledException">The <see cref="KernelFunction"/>'s invocation was canceled.</exception>
+    /// <remarks>
+    /// The function will not be invoked until an enumerator is retrieved from the returned <see cref="IAsyncEnumerable{T}"/>
+    /// and its iteration initiated via an initial call to <see cref="IAsyncEnumerator{T}.MoveNextAsync"/>.
+    /// </remarks>
+    public IAsyncEnumerable<T> InvokeStreamingAsync<T>(
+        string? pluginName,
+        string functionName,
+        KernelArguments? arguments = null,
+        CancellationToken cancellationToken = default)
+    {
+        Verify.NotNullOrWhiteSpace(functionName);
+
+        var function = this.Plugins.GetFunction(pluginName, functionName);
 
         return function.InvokeStreamingAsync<T>(this, arguments, cancellationToken);
     }

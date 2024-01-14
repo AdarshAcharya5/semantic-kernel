@@ -3,7 +3,6 @@
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Microsoft.SemanticKernel;
-using Microsoft.SemanticKernel.Events;
 using Xunit;
 
 // ReSharper disable StringLiteralTypo
@@ -20,10 +19,10 @@ public class FunctionFromMethodTests
         var nativeContent = "Full content result";
         var sut = KernelFunctionFactory.CreateFromMethod(() => nativeContent);
 
-        var chunkCount = 0;
-        StreamingContentBase? lastChunk = null;
         // Act
-        await foreach (var chunk in sut.InvokeStreamingAsync<StreamingContentBase>(kernel))
+        var chunkCount = 0;
+        StreamingKernelContent? lastChunk = null;
+        await foreach (var chunk in sut.InvokeStreamingAsync<StreamingKernelContent>(kernel))
         {
             chunkCount++;
             lastChunk = chunk;
@@ -32,11 +31,50 @@ public class FunctionFromMethodTests
         // Assert
         Assert.Equal(1, chunkCount);
         Assert.NotNull(lastChunk);
-        Assert.IsAssignableFrom<StreamingContentBase>(lastChunk);
+        Assert.IsAssignableFrom<StreamingKernelContent>(lastChunk);
         Assert.IsType<StreamingMethodContent>(lastChunk);
 
         var methodContent = lastChunk as StreamingMethodContent;
         Assert.Equal(nativeContent, methodContent!.Content);
+    }
+
+    [Fact]
+    public async Task InvokeStreamingAsyncShouldPropagateMetadataFromNonStreamingMethodAsync()
+    {
+        // Arrange
+        var kernel = new Kernel();
+        var nativeContent = "Full content result";
+        var sut = KernelFunctionFactory.CreateFromMethod((KernelFunction func) =>
+        {
+            return new FunctionResult(func, nativeContent, metadata: new Dictionary<string, object?>()
+            {
+                { "key1", "value1" },
+                { "key2", "value2" },
+            });
+        });
+
+        // Act
+        var chunkCount = 0;
+        StreamingKernelContent? lastChunk = null;
+        await foreach (var chunk in sut.InvokeStreamingAsync<StreamingKernelContent>(kernel))
+        {
+            chunkCount++;
+            lastChunk = chunk;
+        }
+
+        // Assert
+        Assert.Equal(1, chunkCount);
+        Assert.NotNull(lastChunk);
+        Assert.IsAssignableFrom<StreamingKernelContent>(lastChunk);
+        Assert.IsType<StreamingMethodContent>(lastChunk);
+
+        var methodContent = lastChunk as StreamingMethodContent;
+        Assert.Equal(nativeContent, methodContent!.Content);
+
+        Assert.NotNull(methodContent.Metadata);
+        Assert.Equal(2, methodContent.Metadata.Count);
+        Assert.Equal("value1", methodContent.Metadata["key1"]);
+        Assert.Equal("value2", methodContent.Metadata["key2"]);
     }
 
     [Fact]
@@ -61,7 +99,7 @@ public class FunctionFromMethodTests
         };
 
         // Act
-        await foreach (var chunk in sut.InvokeStreamingAsync<StreamingContentBase>(kernel))
+        await foreach (var chunk in sut.InvokeStreamingAsync<StreamingKernelContent>(kernel))
         {
         }
 
@@ -85,8 +123,8 @@ public class FunctionFromMethodTests
         };
 
         // Act
-        IAsyncEnumerable<StreamingContentBase> enumerable = sut.InvokeStreamingAsync<StreamingContentBase>(kernel);
-        IAsyncEnumerator<StreamingContentBase> enumerator = enumerable.GetAsyncEnumerator();
+        IAsyncEnumerable<StreamingKernelContent> enumerable = sut.InvokeStreamingAsync<StreamingKernelContent>(kernel);
+        IAsyncEnumerator<StreamingKernelContent> enumerator = enumerable.GetAsyncEnumerator();
         Assert.False(invokingCalled);
         var e = await Assert.ThrowsAsync<KernelFunctionCanceledException>(async () => await enumerator.MoveNextAsync());
 
@@ -113,7 +151,7 @@ public class FunctionFromMethodTests
         var chunkCount = 0;
 
         // Act
-        await foreach (var chunk in sut.InvokeStreamingAsync<StreamingContentBase>(kernel))
+        await foreach (var chunk in sut.InvokeStreamingAsync<StreamingKernelContent>(kernel))
         {
             chunkCount++;
         }

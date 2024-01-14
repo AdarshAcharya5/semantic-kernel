@@ -16,31 +16,39 @@ public static class OpenAIKernelFunctionMetadataExtensions
     /// <returns>An <see cref="OpenAIFunction"/> object.</returns>
     public static OpenAIFunction ToOpenAIFunction(this KernelFunctionMetadata metadata)
     {
-        var openAIParams = new List<OpenAIFunctionParameter>();
-        foreach (KernelParameterMetadata param in metadata.Parameters)
+        IReadOnlyList<KernelParameterMetadata> metadataParams = metadata.Parameters;
+
+        var openAIParams = new OpenAIFunctionParameter[metadataParams.Count];
+        for (int i = 0; i < openAIParams.Length; i++)
         {
-            openAIParams.Add(new OpenAIFunctionParameter
-            {
-                Name = param.Name,
-                Description = string.IsNullOrEmpty(param.DefaultValue) ? param.Description : $"{param.Description} (default value: {param.DefaultValue})",
-                IsRequired = param.IsRequired,
-                ParameterType = param.ParameterType,
-                Schema = param.Schema ?? OpenAIFunction.GetJsonSchema(param.ParameterType, param.Description),
-            });
+            var param = metadataParams[i];
+
+            openAIParams[i] = new OpenAIFunctionParameter(
+                param.Name,
+                GetDescription(param),
+                param.IsRequired,
+                param.ParameterType,
+                param.Schema);
         }
 
-        return new OpenAIFunction
+        return new OpenAIFunction(
+            metadata.PluginName,
+            metadata.Name,
+            metadata.Description,
+            openAIParams,
+            new OpenAIFunctionReturnParameter(
+                metadata.ReturnParameter.Description,
+                metadata.ReturnParameter.ParameterType,
+                metadata.ReturnParameter.Schema));
+
+        static string GetDescription(KernelParameterMetadata param)
         {
-            FunctionName = metadata.Name,
-            PluginName = metadata.PluginName ?? "",
-            Description = metadata.Description,
-            Parameters = openAIParams,
-            ReturnParameter = new OpenAIFunctionReturnParameter
+            if (InternalTypeConverter.ConvertToString(param.DefaultValue) is string stringValue && !string.IsNullOrEmpty(stringValue))
             {
-                Description = metadata.ReturnParameter.Description,
-                ParameterType = metadata.ReturnParameter.ParameterType,
-                Schema = metadata.ReturnParameter.Schema ?? OpenAIFunction.GetJsonSchema(metadata.ReturnParameter.ParameterType, metadata.ReturnParameter.Description),
+                return $"{param.Description} (default value: {stringValue})";
             }
-        };
+
+            return param.Description;
+        }
     }
 }
